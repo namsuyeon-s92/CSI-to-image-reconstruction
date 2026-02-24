@@ -8,12 +8,11 @@ from torch.utils.data import Subset, DataLoader
 from sklearn.model_selection import train_test_split
 from tqdm import tqdm
 
-from dataset import WificamDataset, NUM_SUBCARRIERS
+from dataset import WificamDataset, AugmentedDatasetWrapper, NUM_SUBCARRIERS
 from vae import VAE
 
 
 num_workers = 2
-torch.set_num_threads(4)
 if torch.backends.mps.is_available():
     device = torch.device('mps')
     accelerator = 'mps'
@@ -38,7 +37,8 @@ fps = 10
 step = 10
 size = (128, 128)
 fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-checkpoint_path = os.path.join(output_dir, 'epoch=37-val_loss=844.4335.ckpt')
+# CHECKPOINT PATH NEEDS TO BE UPDATED BEFORE REAL RUN
+checkpoint_path = os.path.join(output_dir, 'epoch=32-val_loss=810.3148.ckpt')
 
 window_size = 151
 batch_size = 32
@@ -46,9 +46,9 @@ persistent_workers = True if num_workers > 0 else False
 
 
 def test():
-    dataset = WificamDataset(test_dir, window_size)
-    _, test_idx = train_test_split(list(range(len(dataset))), test_size=0.1, shuffle=False)
-    dataset_test = Subset(dataset, test_idx)
+    base_dataset = WificamDataset(test_dir, window_size)
+    _, test_idx = train_test_split(list(range(len(base_dataset))), test_size=0.1, shuffle=False)
+    dataset_test = AugmentedDatasetWrapper(Subset(base_dataset, test_idx), augment=False)
 
     dataloader_test = DataLoader(
         dataset_test,

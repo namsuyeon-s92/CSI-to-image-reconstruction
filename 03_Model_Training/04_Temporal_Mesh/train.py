@@ -11,8 +11,8 @@ from dataset import WificamDataset, NUM_SUBCARRIERS
 from vae import VAE
 
 
-num_workers = 4
-torch.set_num_threads(8)
+num_workers = 2
+torch.set_num_threads(4)
 if torch.backends.mps.is_available():
     device = torch.device('mps')
     accelerator = 'mps'
