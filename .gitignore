@@ -4,6 +4,9 @@
 trained_models/
 media/
 build/
+00_Datasets/
+outputs/
+01_Key2Mesh/
 
 ### macOS ###
 # General
@@ -212,10 +215,10 @@ pyrightconfig.json
 
 ### VisualStudioCode ###
 .vscode/*
-!.vscode/settings.json
-!.vscode/tasks.json
-!.vscode/launch.json
-!.vscode/extensions.json
+# !.vscode/settings.json
+# !.vscode/tasks.json
+# !.vscode/launch.json
+# !.vscode/extensions.json
 !.vscode/*.code-snippets
 
 # Local History for Visual Studio Code

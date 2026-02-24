@@ -58,7 +58,8 @@ def is_valid_csi_count(decoded_data, expected_count):
         return False
     
     content = decoded_data[start_index+1:end_index]
-    if content.count(',') == expected_count -1:
+    # Check if we have the right number of commas representing the array elements
+    if content.count(',') == expected_count - 1:
         return True
     return False
     
@@ -97,19 +98,29 @@ def display_worker(queue):
 
 
 class CsiUdpServerProtocol:
+    def __init__(self):
+        self.buffer = ""
+
     def connection_made(self, transport):
         logger.info(f'CSI server started on port {CSI_UDP_PORT}')
 
     def datagram_received(self, data, addr):
         global current_id, csi_count
         try:
-            decoded_data = data.decode()
-            if is_valid_csi_count(decoded_data, CSI_DATA_LENGTH):
-                current_id += 1
-                csi_count += 1
-                asyncio.get_running_loop().run_in_executor(
-                    executor, save_csi_worker, current_id, decoded_data
-                )
+            self.buffer += data.decode()
+            
+            # Process complete lines from the buffer
+            while '\n' in self.buffer:
+                line, self.buffer = self.buffer.split('\n', 1)
+                
+                # Validation checks before saving
+                if line.startswith('"') and is_valid_csi_count(line, CSI_DATA_LENGTH): 
+                    current_id += 1
+                    csi_count += 1
+                    # Append the newline that was split off
+                    asyncio.get_running_loop().run_in_executor(
+                        executor, save_csi_worker, current_id, line + '\n'
+                    )
         except Exception as e:
             logger.error(f'CSI UDP error: {e}')
 

@@ -23,10 +23,13 @@ else:
     device = torch.device('cpu')
     accelerator = 'cpu'
 
+print(f"Using device: {device}")
+print(f"Using accelerator: {accelerator}")
+
 current_file_path = Path(__file__).resolve()
 current_folder = current_file_path.parent
 project_root = current_folder.parent
-data_dir = os.path.join(project_root, 'data', 'data_2026_01_20_mesh')
+data_dir = os.path.join(project_root, '00_Datasets', 'data_20260220_2_mesh_resized')
 
 window_size = 151
 batch_size = 32

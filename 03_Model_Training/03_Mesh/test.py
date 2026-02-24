@@ -24,10 +24,13 @@ else:
     device = torch.device('cpu')
     accelerator = 'cpu'
 
+print(f"Using device: {device}")
+print(f"Using accelerator: {accelerator}")
+
 current_file_path = Path(__file__).resolve()
 current_folder = current_file_path.parent
 project_root = current_folder.parent
-test_dir = os.path.join(project_root, 'data', 'data_2026_01_20_mesh')
+test_dir = os.path.join(project_root, '00_Datasets', 'data_20260220_2_mesh_resized')
 
 output_dir = os.path.join(current_folder, 'outputs')
 output_video_file = os.path.join(output_dir, 'output.mp4')
@@ -35,7 +38,7 @@ fps = 10
 step = 10
 size = (128, 128)
 fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-checkpoint_path = os.path.join(output_dir, 'epoch=42-val_loss=1413.0200.ckpt')
+checkpoint_path = os.path.join(output_dir, 'epoch=51-val_loss=932.2098.ckpt')
 image_dir = os.path.join(output_dir, 'images')
 os.makedirs(image_dir, exist_ok=True)
 

@@ -13,6 +13,9 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
+from core.preprocessor import TemporalMeshPreprocessor
+from core.inferencer import BaseInferencer
+from core.postprocessor import ImagePostprocessor
 from models.vae import VAE
 
 
@@ -35,14 +38,7 @@ else:
     device = torch.device('cpu')
 
 window_size = 151
-model = VAE.load_from_checkpoint(
-    'trained_models/epoch=26-val_loss=389.5090.ckpt',
-    window_size=window_size,
-    num_subcarriers=NUM_SUBCARRIERS,
-)
-
-model.to(device)
-model.eval()
+checkpoint_path = 'trained_models/epoch=26-val_loss=389.5090.ckpt'
 
 
 async def stats_printer():
@@ -54,20 +50,43 @@ async def stats_printer():
 
 
 def extract_csi_data(decoded_data):
+    # Example format from rx: "MAC",rssi,...,timestamp,...,"[%d,%d...]"
+    # The timestamp is the 18th element (index 17) in the CSV-like string before the array.
+    # We can split by ',' up to the '['
+    
     start_index = decoded_data.rfind('[')
     end_index = decoded_data.rfind(']')
     if start_index == -1 or end_index == -1:
         return None
     
+    csv_part = decoded_data[:start_index]
+    elements = csv_part.split(',')
+    
+    # Check if elements has enough length to contain timestamp
+    if len(elements) < 18:
+        return None
+        
+    try:
+        timestamp = int(elements[17])
+    except ValueError:
+        return None
+
     csi_string = decoded_data[start_index:end_index+1]
     try:
-        return json.loads(csi_string)
+        data_array = json.loads(csi_string)
+        return {
+            'local_timestamp': timestamp,
+            'data': data_array
+        }
     except:
         return None
 
 
-def inference_worker(queue):
-    csi = []
+def inference_worker(queue, checkpoint_path, window_size, valid_subcarrier_index, device):
+    preprocessor = TemporalMeshPreprocessor(window_size, valid_subcarrier_index)
+    inferencer = BaseInferencer(VAE, checkpoint_path, device, window_size=window_size, num_subcarriers=len(valid_subcarrier_index))
+    postprocessor = ImagePostprocessor()
+
     while True:
         try:
             decoded_data = queue.get()
@@ -76,32 +95,27 @@ def inference_worker(queue):
                 break
 
             csi_data = extract_csi_data(decoded_data)
-            if csi_data is None or len(csi_data) != CSI_DATA_LENGTH:
+            if csi_data is None or len(csi_data['data']) != CSI_DATA_LENGTH:
                 continue
-            
-            csi.append(csi_data)
-            if len(csi) < window_size:
+
+            preprocessor.add_data(csi_data)
+
+            if not preprocessor.is_ready():
                 continue
-            
-            csi_array = np.array(csi[:window_size], dtype=np.int32)
 
-            real = csi_array[:, [i * 2 for i in CSI_VALID_SUBCARRIER_INDEX]]
-            imag = csi_array[:, [i * 2 - 1 for i in CSI_VALID_SUBCARRIER_INDEX]]
-            spectrogram = np.sqrt(real**2 + imag**2).astype(np.float32)[np.newaxis, :, :]
-            spectrogram = torch.from_numpy(spectrogram)
-            spectrogram = spectrogram.to(device)
+            spectrogram = preprocessor.process()
+            if spectrogram is None:
+                # Buffer might be large enough but strictly not covering the 1.5s time window.
+                continue
 
-            with torch.no_grad():
-                reconstruction = model.decode(model.encode(spectrogram))
-            
-            image = reconstruction.permute(0, 2, 3, 1).cpu().numpy()
-            image = image[0][..., ::-1]
-            image = np.clip(image, 0, 1)
-            image = (image * 255).astype(np.uint8)
+            reconstruction = inferencer.infer(spectrogram)
+            image = postprocessor.process(reconstruction)
 
             os.makedirs('media', exist_ok=True)
             np.save('media/image.npy', image)
-            csi = csi[inference_interval:]
+            
+            preprocessor.consume_buffer()
+            
         except Exception as e:
             print(f'Inference Error: {e}')
 
