@@ -78,7 +78,8 @@ class Decoder(nn.Module):
         for i in range(len(hidden_dims) - 1):
             modules.append(
                 nn.Sequential(
-                    nn.ConvTranspose2d(hidden_dims[i], hidden_dims[i + 1], kernel_size=3, stride=2, padding=1, output_padding=1),
+                    nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),
+                    nn.Conv2d(hidden_dims[i], hidden_dims[i + 1], kernel_size=3, stride=1, padding=1),
                     nn.BatchNorm2d(hidden_dims[i + 1]),
                     nn.LeakyReLU(0.01),
                 )
@@ -86,7 +87,8 @@ class Decoder(nn.Module):
         else:
             modules.append(
                 nn.Sequential(
-                    nn.ConvTranspose2d(hidden_dims[-1], hidden_dims[-1], kernel_size=3, stride=2, padding=1, output_padding=1),
+                    nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),
+                    nn.Conv2d(hidden_dims[-1], hidden_dims[-1], kernel_size=3, stride=1, padding=1),
                     nn.BatchNorm2d(hidden_dims[-1]),
                     nn.LeakyReLU(0.01),
                     nn.Conv2d(hidden_dims[-1], out_channels=3, kernel_size=3, padding=1),

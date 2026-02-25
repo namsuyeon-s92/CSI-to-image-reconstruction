@@ -1,0 +1,102 @@
+import os
+from pathlib import Path
+
+import pytorch_lightning as L
+import torch
+from torch.utils.data import Subset, DataLoader
+from pytorch_lightning.callbacks import ModelCheckpoint
+from pytorch_lightning.loggers import CSVLogger
+from sklearn.model_selection import train_test_split
+
+from dataset import KeypointDataset, NUM_SUBCARRIERS
+from model import KeypointEstimator
+
+
+num_workers = 4
+if torch.backends.mps.is_available():
+    device = torch.device('mps')
+    accelerator = 'mps'
+elif torch.cuda.is_available():
+    device = torch.device('cuda')
+    accelerator = 'gpu'
+else:
+    device = torch.device('cpu')
+    accelerator = 'cpu'
+
+print(f"Using device: {device}")
+print(f"Using accelerator: {accelerator}")
+
+current_file_path = Path(__file__).resolve()
+current_folder = current_file_path.parent
+project_root = current_folder.parent
+
+# Dataset paths
+csi_dir = os.path.join(project_root, '00_Datasets', 'data_20260220_2')
+kp_dir = os.path.join(project_root, '00_Datasets', 'data_20260220_2_processed', 'openpose_outs')
+
+window_size = 100
+batch_size = 32
+epochs = 200
+lr = 1e-4
+
+def train():
+    dataset = KeypointDataset(
+        csi_base_dir=csi_dir,
+        keypoint_base_dir=kp_dir,
+        window_size=window_size
+    )
+
+    train_idx, val_idx = train_test_split(list(range(len(dataset))), test_size=0.1, shuffle=True)
+
+    dataset_train = Subset(dataset, train_idx)
+    dataset_val = Subset(dataset, val_idx)
+
+    dataloader_train = DataLoader(
+        dataset_train,
+        batch_size=batch_size,
+        shuffle=True,
+        drop_last=True,
+        num_workers=num_workers,
+    )
+    dataloader_val = DataLoader(
+        dataset_val,
+        batch_size=batch_size * 2,
+        shuffle=False,
+        drop_last=False,
+        num_workers=num_workers,
+    )
+
+    output_dir = os.path.join(current_folder, 'outputs')
+    os.makedirs(output_dir, exist_ok=True)
+
+    csv_logger = CSVLogger(save_dir=output_dir, name="csv_logs")
+
+    model = KeypointEstimator(
+        window_size=window_size, 
+        num_subcarriers=NUM_SUBCARRIERS,
+        lr=lr
+    )
+
+    callbacks = [
+        ModelCheckpoint(
+            monitor='val_loss', 
+            mode='min', 
+            save_top_k=-1,
+            save_last=False, 
+            filename='{epoch}-{val_loss:.4f}',
+            dirpath=output_dir
+        ),
+    ]
+
+    trainer = L.Trainer(
+        accelerator=accelerator,
+        devices=1,
+        logger=csv_logger,
+        callbacks=callbacks,
+        max_epochs=epochs
+    )
+    trainer.fit(model, dataloader_train, dataloader_val)
+
+
+if __name__ == '__main__':
+    train()

@@ -37,7 +37,7 @@ fps = 10
 step = 10
 size = (128, 128)
 fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-checkpoint_path = os.path.join(output_dir, 'epoch=24-val_loss=796.4250.ckpt')
+checkpoint_path = os.path.join(output_dir, 'epoch=50-val_loss=1043.5233.ckpt')
 
 window_size = 151
 batch_size = 32
