@@ -55,7 +55,7 @@ class VAE(L.LightningModule):
         qz_x, x_hat = self.forward(batch[0])
         loss = self.loss_function(batch[1], qz_x, x_hat)
         for loss_n, loss_val in loss.items():
-            self.log(f"{stage}_{loss_n}", loss_val, on_epoch=True, prog_bar=True, logger=False)
+            self.log(f"{stage}_{loss_n}", loss_val, on_epoch=True, prog_bar=True, logger=True)
         return loss["loss"]
 
     def training_step(self, batch, batch_idx):

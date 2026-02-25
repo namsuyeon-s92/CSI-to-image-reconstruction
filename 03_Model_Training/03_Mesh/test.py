@@ -13,7 +13,6 @@ from vae import VAE
 
 
 num_workers = 2
-torch.set_num_threads(4)
 if torch.backends.mps.is_available():
     device = torch.device('mps')
     accelerator = 'mps'
@@ -38,7 +37,7 @@ fps = 10
 step = 10
 size = (128, 128)
 fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-checkpoint_path = os.path.join(output_dir, 'epoch=51-val_loss=932.2098.ckpt')
+checkpoint_path = os.path.join(output_dir, 'epoch=40-val_loss=832.5291.ckpt')
 image_dir = os.path.join(output_dir, 'images')
 os.makedirs(image_dir, exist_ok=True)
 

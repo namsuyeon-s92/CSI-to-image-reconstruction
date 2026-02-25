@@ -5,6 +5,7 @@ import pytorch_lightning as L
 import torch
 from torch.utils.data import Subset, DataLoader
 from pytorch_lightning.callbacks import ModelCheckpoint
+from pytorch_lightning.loggers import CSVLogger
 from sklearn.model_selection import train_test_split
 
 from dataset import WificamDataset, NUM_SUBCARRIERS
@@ -12,7 +13,6 @@ from vae import VAE
 
 
 num_workers = 2
-torch.set_num_threads(4)
 if torch.backends.mps.is_available():
     device = torch.device('mps')
     accelerator = 'mps'
@@ -65,6 +65,8 @@ def train():
     output_dir = os.path.join(current_folder, 'outputs')
     os.makedirs(output_dir, exist_ok=True)
 
+    csv_logger = CSVLogger(save_dir=output_dir, name="csv_logs")
+
     model = VAE(window_size=window_size, num_subcarriers=NUM_SUBCARRIERS)
 
     callbacks = [
@@ -82,7 +84,7 @@ def train():
         accelerator=accelerator,
         devices=1,
         gradient_clip_val=1.0,
-        logger=False,
+        logger=csv_logger,
         callbacks=callbacks,
         max_epochs=epochs
     )
