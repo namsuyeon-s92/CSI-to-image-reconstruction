@@ -7,6 +7,8 @@ build/
 00_Datasets/
 outputs/
 01_Key2Mesh/
+results/
+candidates/
 
 ### macOS ###
 # General

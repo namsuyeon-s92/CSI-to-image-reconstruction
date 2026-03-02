@@ -15,7 +15,7 @@ NUM_SUBCARRIERS = len(CSI_VALID_SUBCARRIER_INDEX)
 
 
 class KeypointDataset(Dataset):
-    def __init__(self, csi_base_dir, keypoint_base_dir, window_size=100):
+    def __init__(self, csi_base_dir, keypoint_base_dir, window_size=151):
         self.csi_base_dir = csi_base_dir
         self.keypoint_base_dir = keypoint_base_dir
         self.window_size = window_size
@@ -43,7 +43,7 @@ class KeypointDataset(Dataset):
         valid_label_ids = np.array(sorted(list(id_to_json.keys())))
         
         if len(valid_label_ids) == 0:
-            print(f"No JSON labels found in {self.keypoint_base_dir}.")
+            print(f"Warning: No valid JSON labels found in {self.keypoint_base_dir}. Dataset will be empty.")
             return
 
         # 2. Find csi.csv files
@@ -121,8 +121,7 @@ class KeypointDataset(Dataset):
                             # Taking biggest human if multiple exist (same heuristic as pipeline.py)
                             biggest_box_idx = 0
                             max_scale = 0
-                            
-                            kp_list_candidates = []
+
                             for idx, person in enumerate(people_list):
                                 kps = np.array(person['pose_keypoints_2d']).reshape(18, 3)
                                 conf = kps[:, 2]

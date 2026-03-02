@@ -29,15 +29,15 @@ print(f"Using accelerator: {accelerator}")
 current_file_path = Path(__file__).resolve()
 current_folder = current_file_path.parent
 project_root = current_folder.parent
-test_dir = os.path.join(project_root, '00_Datasets', 'data_20260220_2_mesh_resized')
+test_dir = os.path.join(project_root, '00_Datasets', 'data_20260220_2_mesh')
 
 output_dir = os.path.join(current_folder, 'outputs')
 output_video_file = os.path.join(output_dir, 'output.mp4')
 fps = 10
 step = 10
-size = (128, 128)
+size = (640, 480)
 fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-checkpoint_path = os.path.join(output_dir, 'epoch=40-val_loss=832.5291.ckpt')
+checkpoint_path = os.path.join(output_dir, 'epoch=3-val_loss=25413.6875.ckpt')
 image_dir = os.path.join(output_dir, 'images')
 
 window_size = 151
@@ -83,15 +83,17 @@ def test():
         reconstruction = reconstruction.permute(0, 2, 3, 1).cpu().numpy()
 
         for i in range(len(reconstruction)):
+            idx += 1
+            if idx % step != 0:
+                continue
+
             data_content = (np.clip(image[i][..., ::-1], 0, 1) * 255).astype(np.uint8)
             pred_content = (np.clip(reconstruction[i][..., ::-1], 0, 1) * 255).astype(np.uint8)
 
             mask = np.any(pred_content > 10, axis=-1)
             data_content[mask] = pred_content[mask]
 
-            idx += 1
-            if idx % step == 0:
-                out.write(data_content)
+            out.write(data_content)
 
     out.release()
 

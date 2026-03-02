@@ -3,7 +3,7 @@ import torch.nn as nn
 import pytorch_lightning as L
 
 class KeypointEstimator(L.LightningModule):
-    def __init__(self, window_size=100, num_subcarriers=56, num_keypoints=18, lr=1e-4):
+    def __init__(self, window_size=151, num_subcarriers=52, num_keypoints=18, lr=1e-4):
         super(KeypointEstimator, self).__init__()
         self.save_hyperparameters()
         self.window_size = window_size
@@ -11,34 +11,22 @@ class KeypointEstimator(L.LightningModule):
         self.num_keypoints = num_keypoints
         self.lr = lr
 
-        self.features = nn.Sequential(
-            nn.Conv2d(1, 32, kernel_size=(5, 5), stride=(2, 2), padding=2),
-            nn.BatchNorm2d(32),
-            nn.ReLU(),
-            nn.MaxPool2d(2),
-            
-            nn.Conv2d(32, 64, kernel_size=(3, 3), stride=(1, 1), padding=1),
-            nn.BatchNorm2d(64),
-            nn.ReLU(),
-            nn.MaxPool2d(2),
-            
-            nn.Conv2d(64, 128, kernel_size=(3, 3), stride=(1, 1), padding=1),
-            nn.BatchNorm2d(128),
-            nn.ReLU(),
-            nn.AdaptiveAvgPool2d((4, 4))
+        self.subcarrier_encoder = nn.Sequential(
+            nn.Linear(num_subcarriers, 256),
+            nn.LeakyReLU(0.01),
+            nn.Dropout(0.2),
+            nn.Linear(256, 8),
         )
-        
-        # Flatten size: 128 * 4 * 4 = 2048
-        
-        self.fc = nn.Sequential(
-            nn.Linear(2048, 512),
-            nn.BatchNorm1d(512),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(512, 256),
-            nn.BatchNorm1d(256),
-            nn.ReLU(),
-            nn.Dropout(0.3)
+        self.latent_encoder = nn.Sequential(
+            nn.Linear(8 * window_size, 256),
+            nn.LeakyReLU(0.01),
+            nn.Dropout(0.2),
+            nn.Linear(256, 256),
+            nn.LeakyReLU(0.01),
+            nn.Dropout(0.2),
+            nn.Linear(256, 256),
+            nn.LeakyReLU(0.01),
+            nn.Dropout(0.2),
         )
         
         self.presence_head = nn.Linear(256, 1)
@@ -49,11 +37,10 @@ class KeypointEstimator(L.LightningModule):
         self.criterion_kp = nn.MSELoss(reduction='none')
 
     def forward(self, x):
-        # x is [B, W, F] -> [B, 1, W, F]
-        x = x.unsqueeze(1)
-        x = self.features(x)
-        x = x.view(x.size(0), -1)
-        x = self.fc(x)
+        # x shape: [B, W, F]
+        x = self.subcarrier_encoder(x)
+        x = torch.flatten(x, start_dim=1)
+        x = self.latent_encoder(x)
         
         presence_logit = self.presence_head(x)
         keypoints = self.keypoints_head(x)

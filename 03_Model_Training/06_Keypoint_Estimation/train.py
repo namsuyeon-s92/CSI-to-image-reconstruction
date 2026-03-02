@@ -12,7 +12,7 @@ from dataset import KeypointDataset, NUM_SUBCARRIERS
 from model import KeypointEstimator
 
 
-num_workers = 4
+num_workers = 2
 if torch.backends.mps.is_available():
     device = torch.device('mps')
     accelerator = 'mps'
@@ -34,10 +34,11 @@ project_root = current_folder.parent
 csi_dir = os.path.join(project_root, '00_Datasets', 'data_20260220_2')
 kp_dir = os.path.join(project_root, '00_Datasets', 'data_20260220_2_processed', 'openpose_outs')
 
-window_size = 100
+window_size = 151
 batch_size = 32
 epochs = 200
 lr = 1e-4
+persistent_workers = True if num_workers > 0 else False
 
 def train():
     dataset = KeypointDataset(
@@ -46,7 +47,7 @@ def train():
         window_size=window_size
     )
 
-    train_idx, val_idx = train_test_split(list(range(len(dataset))), test_size=0.1, shuffle=True)
+    train_idx, val_idx = train_test_split(list(range(len(dataset))), test_size=0.1, shuffle=False)
 
     dataset_train = Subset(dataset, train_idx)
     dataset_val = Subset(dataset, val_idx)
@@ -57,6 +58,7 @@ def train():
         shuffle=True,
         drop_last=True,
         num_workers=num_workers,
+        persistent_workers=persistent_workers
     )
     dataloader_val = DataLoader(
         dataset_val,
@@ -64,6 +66,7 @@ def train():
         shuffle=False,
         drop_last=False,
         num_workers=num_workers,
+        persistent_workers=persistent_workers
     )
 
     output_dir = os.path.join(current_folder, 'outputs')

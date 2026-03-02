@@ -1,10 +1,11 @@
 import os
-from pathlib import Path
 import json
-import torch
-import cv2
-import numpy as np
 import glob
+from pathlib import Path
+
+import cv2
+import torch
+import numpy as np
 from torch.utils.data import DataLoader, Subset
 from sklearn.model_selection import train_test_split
 from tqdm import tqdm
@@ -12,12 +13,44 @@ from tqdm import tqdm
 from model import KeypointEstimator
 from dataset import KeypointDataset, NUM_SUBCARRIERS
 
+
+num_workers = 2
+if torch.backends.mps.is_available():
+    device = torch.device('mps')
+    accelerator = 'mps'
+elif torch.cuda.is_available():
+    device = torch.device('cuda')
+    accelerator = 'gpu'
+else:
+    device = torch.device('cpu')
+    accelerator = 'cpu'
+
+print(f"Using device: {device}")
+print(f"Using accelerator: {accelerator}")
+
+current_file_path = Path(__file__).resolve()
+current_folder = current_file_path.parent
+project_root = current_folder.parent
+csi_dir = os.path.join(project_root, '00_Datasets', 'data_20260220_2')
+kp_dir = os.path.join(project_root, '00_Datasets', 'data_20260220_2_processed', 'openpose_outs')
+candidates_path = os.path.join(current_folder, 'candidates', 'keypoint_candidates.npy')
+
+output_dir = os.path.join(current_folder, 'outputs')
+save_dir = os.path.join(current_folder, 'results')
+video_output_path = os.path.join(save_dir, 'skeleton_output.mp4')
+
+# Model Configs
+window_size = 151
+batch_size = 1
+persistent_workers = True if num_workers > 0 else False
+
 # OpenPose COCO format 18 keypoints connection pairs
 POSE_PAIRS = [
     (1, 2), (1, 5), (2, 3), (3, 4), (5, 6), (6, 7), 
     (1, 8), (8, 9), (9, 10), (1, 11), (11, 12), (12, 13), 
     (1, 0), (0, 14), (14, 16), (0, 15), (15, 17)
 ]
+
 
 def draw_skeleton(img, kps, threshold=0.1):
     res_img = img.copy()
@@ -31,67 +64,43 @@ def draw_skeleton(img, kps, threshold=0.1):
             cv2.circle(res_img, pt2, 4, (0, 0, 255), -1)
     return res_img
 
+
 def test():
-    if torch.backends.mps.is_available():
-        device = torch.device('mps')
-    elif torch.cuda.is_available():
-        device = torch.device('cuda')
-    else:
-        device = torch.device('cpu')
-    print(f"Using device: {device}")
-
-    current_file_path = Path(__file__).resolve()
-    current_folder = current_file_path.parent
-    project_root = current_folder.parent
-
-    # Configs
-    csi_dir = os.path.join(project_root, '00_Datasets', 'data_20260220_2')
-    kp_dir = os.path.join(project_root, '00_Datasets', 'data_20260220_2_processed', 'openpose_outs')
-    checkpoint_path = os.path.join(current_folder, 'outputs', 'csv_logs', 'version_0', 'checkpoints', 'best_model.ckpt') # Adjusted path
-    # Note: checkpoint path might vary based on Lightning versioning. Adjust if necessary.
-    
-    save_dir = os.path.join(current_folder, 'results')
-    candidates_path = os.path.join(current_folder, 'candidates', 'keypoint_candidates.npy')
-    window_size = 100
-
-    test_dataset = KeypointDataset(
+    # Setup Dataloader
+    dataset = KeypointDataset(
         csi_base_dir=csi_dir,
         keypoint_base_dir=kp_dir,
         window_size=window_size
     )
     
-    # Use split to get test set (replaying train.py split)
-    _, test_idx = train_test_split(list(range(len(test_dataset))), test_size=0.1, shuffle=True, random_state=42)
-    test_subset = Subset(test_dataset, test_idx)
-    test_loader = DataLoader(test_subset, batch_size=1, shuffle=False)
+    # Use split to get test set (replaying train.py split style)
+    _, test_idx = train_test_split(list(range(len(dataset))), test_size=0.1, shuffle=False)
+    dataset_test = Subset(dataset, test_idx)
+    dataloader_test = DataLoader(
+        dataset_test, 
+        batch_size=batch_size, 
+        shuffle=False,
+        num_workers=num_workers,
+        persistent_workers=persistent_workers
+    )
     
-    # Try to load model
-    if not os.path.exists(checkpoint_path):
-        # Find any ckpt in outputs if specific one doesn't exist
-        ckpts = glob.glob(os.path.join(current_folder, 'outputs', '**', '*.ckpt'), recursive=True)
-        if ckpts:
-            checkpoint_path = ckpts[0]
-            print(f"Using found checkpoint: {checkpoint_path}")
-        else:
-            print(f"Checkpoint not found at {checkpoint_path}. Attempting to load last .pth if exists...")
-            checkpoint_path = os.path.join(current_folder, 'checkpoints', 'best_keypoint_model.pth')
-
-    if checkpoint_path.endswith('.ckpt'):
-        model = KeypointEstimator.load_from_checkpoint(checkpoint_path)
-    else:
-        model = KeypointEstimator(window_size=window_size, num_subcarriers=NUM_SUBCARRIERS)
-        model.load_state_dict(torch.load(checkpoint_path, map_location=device))
+    # Find and Load Model
+    checkpoint_path = os.path.join(output_dir, 'epoch=58-val_loss=10.4195.ckpt')
+    model = KeypointEstimator.load_from_checkpoint(checkpoint_path)
     
     model.to(device)
     model.eval()
     
+    # Prepare Output Directories
     out_json_dir = os.path.join(save_dir, 'openpose_outs')
     out_img_dir = os.path.join(save_dir, 'imgs')
     os.makedirs(out_json_dir, exist_ok=True)
     os.makedirs(out_img_dir, exist_ok=True)
     
+    # Load Candidates for KMeans matching
     candidates = np.load(candidates_path) if os.path.exists(candidates_path) else None
     
+    # Map image IDs to paths for visualization
     image_paths_map = {}
     for img_p in glob.glob(os.path.join(csi_dir, '**', '*.png'), recursive=True):
         basename = os.path.basename(img_p)
@@ -99,9 +108,15 @@ def test():
             image_paths_map[int(basename.split('.')[0])] = img_p
 
     video_writer = None
+    step = 10
+    idx = 0
     
     with torch.no_grad():
-        for spectrogram, presence, keypoints_gt, img_id in tqdm(test_loader, desc="Testing"):
+        for spectrogram, presence, keypoints_gt, img_id in tqdm(dataloader_test, desc="Testing"):
+            idx += 1
+            if idx % step != 0:
+                continue
+
             spectrogram = spectrogram.to(device)
             img_id = img_id.item()
             
@@ -112,20 +127,38 @@ def test():
             
             people_list = []
             if presence_prob > 0.5:
-                if candidates is not None:
-                    kp_out_xy = kp_out.reshape(18, 3)[:, :2].flatten()
-                    candidates_xy = candidates.reshape(-1, 18, 3)[:, :, :2].reshape(-1, 36)
-                    distances = np.linalg.norm(candidates_xy - kp_out_xy, axis=1)
-                    kp_out = candidates[np.argmin(distances)].copy()
+                # Shape is (54,) and we reshape to (18, 3)
+                kp_out_reshaped = kp_out.reshape(18, 3)
                 
+                # Predicted keypoints (X, Y) and Confidence
+                kp_out_xy = kp_out_reshaped[:, :2] # (18, 2)
+                kp_out_conf = kp_out_reshaped[:, 2:3] # (18, 1)
+                
+                # Target candidates shape (Num_Candidates, 18, 3)
+                candidates_reshaped = candidates.reshape(-1, 18, 3)
+                candidates_xy = candidates_reshaped[:, :, :2] # (Num_Candidates, 18, 2)
+                
+                # Calculate weighted distance
+                diff = candidates_xy - kp_out_xy # (Num_Candidates, 18, 2)
+                squared_diff = diff ** 2
+                dist_per_kp = np.sum(squared_diff, axis=2) # (Num_Candidates, 18)
+                weighted_dist_per_cand = np.sum(dist_per_kp * kp_out_conf.T, axis=1) # (Num_Candidates,)
+                
+                best_cand_idx = np.argmin(weighted_dist_per_cand)
+                kp_out = candidates[best_cand_idx].copy()
+
+                people_list.append({"pose_keypoints_2d": kp_out.tolist()})
+                
+                # Boost confidence for visualization/JSON
                 for i in range(2, 54, 3):
                     kp_out[i] = max(kp_out[i], 0.8)
-                people_list.append({"pose_keypoints_2d": kp_out.tolist()})
             
+            # Save JSON
             json_dict = {"version": 1.3, "people": people_list}
             with open(os.path.join(out_json_dir, f"{img_id}_keypoints.json"), 'w') as f:
                 json.dump(json_dict, f)
                 
+            # Visualization
             if img_id in image_paths_map:
                 orig_img = cv2.imread(image_paths_map[img_id])
                 if orig_img is not None:
@@ -134,12 +167,14 @@ def test():
                     
                     if video_writer is None:
                         h, w = draw_img.shape[:2]
-                        video_writer = cv2.VideoWriter(os.path.join(save_dir, 'skeleton_output.mp4'), 
+                        video_writer = cv2.VideoWriter(video_output_path, 
                                                      cv2.VideoWriter_fourcc(*'mp4v'), 10.0, (w, h))
                     video_writer.write(draw_img)
                     
-    if video_writer is not None: video_writer.release()
+    if video_writer is not None: 
+        video_writer.release()
     print(f"Testing finished! Outputs saved to {save_dir}")
+
 
 if __name__ == '__main__':
     test()
