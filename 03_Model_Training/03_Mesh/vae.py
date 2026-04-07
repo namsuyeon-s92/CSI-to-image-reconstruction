@@ -8,7 +8,6 @@ from pytorch_msssim import ssim
 
 z_dim = 256
 
-#4_3 보다 l1가중치 내리고 ssim 가중치 올려서 세부 형체와 경계선 잡는 방향으로 조정해봅시다.
 
 class VAE(L.LightningModule):
     def __init__(self, window_size, num_subcarriers):
@@ -22,8 +21,8 @@ class VAE(L.LightningModule):
             )
         self.decoder = Decoder()
 
-        self.kl_start_epoch = 20   # 20에폭까지는 KL을 거의 안 씀
-        self.kl_full_epoch = 80    # 80에폭에서 목표치(0.001) 도달
+        self.kl_start_epoch = 20   
+        self.kl_full_epoch = 80    
         self.target_kl_weight = 0.001
 
     def encode(self, x):
@@ -47,33 +46,26 @@ class VAE(L.LightningModule):
         return qz_x, x_hat
     
     def get_kl_weight(self):
-        # 현재 에폭에 따른 KL 가중치 계산 (Linear Annealing)
         if self.current_epoch < self.kl_start_epoch:
-            return 1e-8 # 0에 아주 가까운 값
+            return 1e-8 
         
-        # 가중치를 서서히 증가
         progress = (self.current_epoch - self.kl_start_epoch) / (self.kl_full_epoch - self.kl_start_epoch)
         progress = min(1.0, max(0.0, progress))
         return progress * self.target_kl_weight
     
     def loss_function(self, x, qz_x, x_hat):
-        # 1. 개별 로스 계산
+
         kl = self.calc_kl(qz_x)
         mse_loss = F.mse_loss(x_hat, x)  # MSE 추가: 전체적인 구도와 밝기 잡기
         l1_loss = F.l1_loss(x_hat, x)    # L1: 세부 형체와 경계선 잡기
-        ssim_loss = 1 - ssim(x_hat, x, data_range=1.0, size_average=True) # 구조적 유사도
-        
-        
-        # 2. KL Annealing 가중치 가져오기
+        ssim_loss = 1 - ssim(x_hat, x, data_range=1.0, size_average=True) 
         current_kl_w = self.get_kl_weight()
 
-        # 3. 최종 가중치 합산 (기강 잡기 조합)
-        
         total = (current_kl_w * kl) + (1.0 * mse_loss) + (5.0 * l1_loss) + (10.0 * ssim_loss)
     
         return {
             "loss": total, 
-            "mse": mse_loss, # 로그 확인용 추가
+            "mse": mse_loss, 
             "kl": kl, 
             "l1": l1_loss, 
             "ssim": ssim_loss,
@@ -137,13 +129,8 @@ class Decoder(nn.Module):
         
         # 6x8 -> 12x16 -> 24x32 -> 48x64 -> 96x128 -> 192x256 -> 384x512
         hidden_dims = [512, 256, 128, 64, 32, 16, 8] 
-        
-        # 시작 6x8 해상도, 512 채널
         self.decoder_input = nn.Linear(z_dim, hidden_dims[0] * 6 * 8)
-        
         modules = []
-
-        # 2. 6단계 업샘플링 (각 단계마다 채널은 절반으로, 해상도는 2배로)
         for i in range(len(hidden_dims) - 1):
             modules.append(
                 nn.Sequential(
@@ -155,7 +142,7 @@ class Decoder(nn.Module):
                 )
             )
 
-        # 3. 최종 출력층: 384x512 -> 480x640 강제 맞춤 및 RGB(3ch) 변환
+        
         modules.append(
             nn.Sequential(
                 nn.Upsample(size=(480, 640), mode='bilinear', align_corners=False),
@@ -169,8 +156,8 @@ class Decoder(nn.Module):
     def decode(self, z):
         # z: (Batch, z_dim)
         x = self.decoder_input(z)
-        x = x.view(-1, 512, 6, 8)     # 초기 설정값 적용
-        image = self.decoder(x)       # 최종 결과: (Batch, 3, 480, 640)
+        x = x.view(-1, 512, 6, 8)     
+        image = self.decoder(x)       
         return image
     
 
