@@ -23,41 +23,17 @@ class WificamDataset(Dataset):
         self.load_data()
 
     def load_data(self):
-        data_paths = glob(os.path.join(self.base_dir, '**', 'csi.csv'), recursive=True)
+        data_paths = glob(os.path.join(self.base_dir, 'filtered_csi.csv'), recursive=True)
         for data_path in data_paths:
             data_dir = os.path.dirname(data_path)
-            # Use on_bad_lines=skip to ignore rows that got randomly corrupted or cut off in mid-stream
-            df = pd.read_csv(data_path, on_bad_lines='skip', low_memory=False)
-            df['id'] = pd.to_numeric(df['id'], errors='coerce')
-            df['local_timestamp'] = pd.to_numeric(df['local_timestamp'], errors='coerce')
-            df = df.dropna(subset=['id', 'local_timestamp'])
-            df = df.sort_values(by='id')
+            df = pd.read_csv(data_path).sort_values(by='id')
 
-            # Safely parse JSON arrays, skipping broken lines
-            valid_csi = []
-            valid_ids = []
-            valid_timestamps = []
-            
-            for index, row in df.iterrows():
-                try:
-                    csi_array = json.loads(row['data'])
-                    if len(csi_array) == 256: # Ensure correct shape just in case
-                        valid_csi.append(csi_array)
-                        valid_ids.append(row['id'])
-                        valid_timestamps.append(row['local_timestamp'])
-                except (json.JSONDecodeError, TypeError, ValueError):
-                    # Skip malformed lines such as truncated data arrays
-                    continue
-            
-            if not valid_csi:
-                print(f'Warning: No valid CSI data in {data_dir}. Skipping.')
-                continue
-                
-            raw_csi = np.array(valid_csi, dtype=np.int32)
+            raw_csi = df['data'].apply(json.loads).values
+            raw_csi = np.array([np.array(x, dtype=np.int32) for x in raw_csi])
             real = raw_csi[:, [i * 2 for i in CSI_VALID_SUBCARRIER_INDEX]]
             imag = raw_csi[:, [i * 2 - 1 for i in CSI_VALID_SUBCARRIER_INDEX]]
             amplitude = np.sqrt(real**2 + imag**2).astype(np.float32)
-            
+
             all_image_files = glob(os.path.join(data_dir, '*.png'))
             readable_image_ids = []
             for f in all_image_files:
@@ -93,6 +69,6 @@ class WificamDataset(Dataset):
 
         image = cv2.imread(self.image_paths[index])
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        image = cv2.resize(image, (128, 128))
+        image = cv2.resize(image, (640, 480))
         image = torch.from_numpy(image).permute(2, 0, 1).float() / 255.0
         return spectrogram, image
