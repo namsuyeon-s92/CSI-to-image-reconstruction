@@ -1,11 +1,14 @@
 import os
+
+os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+os.environ["CUDA_VISIBLE_DEVICES"] = "4"
 from pathlib import Path
 
 import pytorch_lightning as L
 import torch
+torch.set_float32_matmul_precision('high')
 from torch.utils.data import Subset, DataLoader
-from pytorch_lightning.callbacks import ModelCheckpoint
-from pytorch_lightning.loggers import CSVLogger
+from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 from sklearn.model_selection import train_test_split
 
 from dataset import WificamDataset, NUM_SUBCARRIERS
@@ -13,6 +16,7 @@ from vae import VAE
 
 
 num_workers = 2
+torch.set_num_threads(4)
 if torch.backends.mps.is_available():
     device = torch.device('mps')
     accelerator = 'mps'
@@ -23,13 +27,10 @@ else:
     device = torch.device('cpu')
     accelerator = 'cpu'
 
-print(f"Using device: {device}")
-print(f"Using accelerator: {accelerator}")
-
 current_file_path = Path(__file__).resolve()
 current_folder = current_file_path.parent
 project_root = current_folder.parent
-data_dir = os.path.join(project_root, '00_Datasets', 'data_20260220_2_mesh_resized')
+data_dir = os.path.join(project_root, 'data', '20260318_train_mesh')
 
 window_size = 151
 batch_size = 32
@@ -62,34 +63,55 @@ def train():
         persistent_workers=persistent_workers,
     )
 
-    output_dir = os.path.join(current_folder, 'outputs')
+    output_dir = os.path.join(current_folder, 'outputs','0318data','260409')
     os.makedirs(output_dir, exist_ok=True)
-
-    csv_logger = CSVLogger(save_dir=output_dir, name="csv_logs")
 
     model = VAE(window_size=window_size, num_subcarriers=NUM_SUBCARRIERS)
 
+    early_stop_callback = EarlyStopping(
+        monitor="val_loss",   
+        patience=30,           
+        mode="min",          
+        verbose=True
+    )
+
+   
     callbacks = [
         ModelCheckpoint(
             monitor='val_loss', 
             mode='min', 
             save_top_k=-1,
-            save_last=False, 
-            filename='{epoch}-{val_loss:.4f}',
-            dirpath=output_dir
-        ),
+            save_last=True, 
+            filename='{epoch}-{val_loss:.6f}',
+            dirpath=output_dir,
+            verbose=True
+        )
+        
     ]
+
+    
 
     trainer = L.Trainer(
         accelerator=accelerator,
         devices=1,
         gradient_clip_val=1.0,
-        logger=csv_logger,
+        logger=True,
         callbacks=callbacks,
         max_epochs=epochs
     )
-    trainer.fit(model, dataloader_train, dataloader_val)
+
+    checkpoint_path = os.path.join(output_dir, 'last.ckpt')
+
+    
+    if os.path.exists(checkpoint_path):
+        
+        trainer.fit(model, dataloader_train, dataloader_val, ckpt_path=checkpoint_path)
+    else:
+        
+        trainer.fit(model, dataloader_train, dataloader_val)
 
 
 if __name__ == '__main__':
     train()
+
+
